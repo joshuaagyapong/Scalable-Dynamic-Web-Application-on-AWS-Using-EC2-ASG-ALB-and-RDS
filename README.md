@@ -1,6 +1,6 @@
 # Dynamic Website Hosting on AWS
 
-!![Architecture Diagram](Host_a_Dynamic_Web_App_on_AWS.png)
+![Architecture Diagram](Host_a_Dynamic_Web_App_on_AWS.png)
 
 ## Project Overview
 
@@ -103,7 +103,7 @@ sudo chmod -R 777 storage/
 sudo vi .env
 
 sudo service httpd restart
----
+```
 
 ## Setup and Configuration Steps
 
