@@ -224,11 +224,11 @@ sudo chmod -R 777 storage/
 sudo vi .env
 
 sudo service httpd restart
-```bash
+```
 
 ## Custom AMI Creation
 
-The configured EC2 instance was stopped and used to create a custom Amazon Machine Image (AMI).
+The configured EC2 instance was stopped and used to create a custom Amazon Machine Image (AMI) from the already created EC2 Instance and deleted the instance(server)
 This AMI serves as the base image for all application servers launched by the Auto Scaling Group, ensuring consistency across instances.
 
 ---
@@ -242,6 +242,152 @@ Traffic flow:
 User → Route 53 → Application Load Balancer → EC2 (Private Subnets) → Amazon RDS
 
 ---
+```
+## Zero-Downtime Update Procedure (AMI + Auto Scaling)
+
+The following procedure ensures application updates do **not** cause downtime when using an Application Load Balancer and Auto Scaling Group.
+
+This process starts from an already deployed environment where:
+- The application is live
+- An Auto Scaling Group and ALB are already serving traffic
+- Instances were launched from **AMI v1**
+
+---
+
+## Safe Update Strategy (No Downtime)
+
+Changes are applied by validating a new AMI **before** touching the Auto Scaling Group.
+
+Live instances are never modified directly.
+
+---
+
+## Step-by-Step: Zero-Downtime Update Flow
+
+### 1. Launch a Temporary EC2 Instance (Validation Phase)
+
+- Launch a new EC2 instance using the **current AMI (AMI v1)**  
+- Place it in the **private application subnet**  
+- Attach the **AppServer Security Group**  
+- Do **not** attach it to the Auto Scaling Group  
+
+---
+
+### 2. Connect and Apply Changes
+
+- Connect to the instance using **EC2 Instance Connect Endpoint**
+- Apply required fixes or configuration changes
+  - Domain configuration
+  - Application settings
+  - Environment variables
+  - Server configuration corrections
+
+---
+
+### 3. Validate the Instance (Critical Step)
+
+Before creating a new AMI, verify:
+
+- Apache is running
+- Application loads successfully
+- Health check endpoint responds correctly
+- Security group allows ALB → EC2 traffic
+- No errors appear in application or system logs
+
+This validation ensures the instance would pass ALB health checks.
+
+---
+
+### 4. Create a New AMI (AMI v2)
+
+- Stop the validated EC2 instance
+- Create a new AMI (**AMI v2**) from the instance
+
+AWS automatically creates EBS snapshots of the instance volumes during AMI creation.
+
+---
+
+### 5. Terminate the Temporary EC2 Instance
+
+- After AMI v2 is created successfully, terminate the temporary EC2 instance
+- No live traffic is affected
+
+---
+
+### 6. Create a New Launch Template Version
+
+- Create a **new Launch Template version**
+- Select **AMI v2**
+- Do not modify any other settings
+
+---
+
+### 7. Update the Auto Scaling Group
+
+- Edit the Auto Scaling Group
+- Set Launch Template version to **Latest (v2)**
+- Save changes
+
+No instances are replaced at this stage.
+
+---
+
+## Instance Refresh (Zero-Downtime Configuration)
+
+### 8. Start Instance Refresh
+
+- Open the Auto Scaling Group (e.g., `Dev-ASG`)
+- Select **Instance refresh**
+- Click **Start instance refresh**
+
+### Instance Refresh Settings
+
+- Replacement method: **Replace instances**
+- Behavior: **Custom behavior**
+
+**Healthy percentage**
+- Minimum: **50%**
+- Maximum: **110%**
+- Desired capacity: **2 instances**
+
+**Instance warmup**
+- Set to **60 seconds**
+- Ensures new instances fully initialize before replacement continues
+
+**Launch Template**
+- Enable **Update launch template**
+- Select **Latest version (AMI v2)**
+
+- Click **Start instance refresh**
+
+---
+
+## What Happens During Instance Refresh
+
+- New EC2 instances launch using **AMI v2**
+- Instances complete warmup and register with the ALB
+- ALB health checks confirm readiness
+- Only healthy instances receive traffic
+- Old instances are terminated **one at a time**
+- At least one healthy instance remains available at all times
+
+---
+
+## Result
+
+- No downtime occurs
+- Traffic continues flowing through the ALB
+- The application runs entirely on the updated AMI
+- The system remains stable and recoverable
+
+---
+
+## Key Rule
+
+Never update the Auto Scaling Group until the new AMI has been validated independently.
+
+Healthy targets guarantee availability — not the Auto Scaling Group itself.
+```
 
 ## Key Skills and Tools Demonstrated
 
