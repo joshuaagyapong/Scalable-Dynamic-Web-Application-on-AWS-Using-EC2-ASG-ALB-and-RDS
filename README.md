@@ -1,6 +1,6 @@
 # Dynamic Website Hosting on AWS
 
-![Architecture Diagram](architecture-diagram.png)
+![Architecture Diagram](screenshots/architecture-diagram.png)
 
 ## Project Overview
 
