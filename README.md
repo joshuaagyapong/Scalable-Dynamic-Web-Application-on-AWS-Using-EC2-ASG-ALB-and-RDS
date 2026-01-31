@@ -12,6 +12,9 @@ No EC2 user data was used.
 
 The architecture separates networking, database, migration, and application layers and follows real-world deployment order and operational practices.
 
+NB: This documentation also includes real deployment errors encountered, the root causes identified, and the corrective actions taken to resolve them safely in a production-style environment.
+
+
 ---
 
 ## Architecture Overview
@@ -228,7 +231,7 @@ sudo service httpd restart
 
 ## Custom AMI Creation
 
-The configured EC2 instance was stopped and used to create a custom Amazon Machine Image (AMI) from the already created EC2 Instance and deleted the instance(server)
+Created a custom Amazon Machine Image (AMI) from the configured EC2 instance and then terminated the instance
 This AMI serves as the base image for all application servers launched by the Auto Scaling Group, ensuring consistency across instances.
 
 ---
@@ -242,7 +245,42 @@ Traffic flow:
 User → Route 53 → Application Load Balancer → EC2 (Private Subnets) → Amazon RDS
 
 ---
+
 ```
+## Operational Errors Encountered and Fixes
+
+This section documents real issues encountered during deployment and how they were resolved.
+
+---
+
+## Error 1: Unable to Register Domain in AWS
+
+**Issue**
+- Domain registration through AWS Route 53 was unavailable due to account or billing restrictions
+- This prevented direct domain purchase within AWS
+
+**Fix**
+- Registered the domain (`jojosboutique.org`) using Namecheap
+- Used Route 53 only as the DNS hosting provider
+- Retrieved Route 53 name servers
+- Updated Namecheap DNS settings to point to Route 53
+- Created required DNS records in Route 53 after delegation
+
+---
+
+## Error 2: Domain Configuration After Auto Scaling Deployment
+
+**Issue**
+- The application was already deployed using an Auto Scaling Group
+- Domain and HTTPS configuration required updating application-level settings
+- Directly modifying running EC2 instances was ineffective because Auto Scaling instances are disposable
+
+**Fix**
+- PLEASE REVIEW BELOW FOR THIS RESOLUTION
+
+---
+
+
 ## Zero-Downtime Update Procedure (AMI + Auto Scaling)
 
 The following procedure ensures application updates do **not** cause downtime when using an Application Load Balancer and Auto Scaling Group.
@@ -260,7 +298,6 @@ Changes are applied by validating a new AMI **before** touching the Auto Scaling
 
 Live instances are never modified directly.
 
----
 
 ## Step-by-Step: Zero-Downtime Update Flow
 
@@ -382,12 +419,159 @@ No instances are replaced at this stage.
 
 ---
 
-## Key Rule
+
+## Key Lesson Learned
+
+- Auto Scaling Group instances should be treated as immutable
+- Any post-deployment changes must be applied through AMI versioning and controlled instance replacement
+- Domain and HTTPS configuration should be planned early, but can be safely corrected using this approach
 
 Never update the Auto Scaling Group until the new AMI has been validated independently.
 
 Healthy targets guarantee availability — not the Auto Scaling Group itself.
+
 ```
+## Critical Configuration Notes and Common Pitfalls
+
+This section documents essential configuration changes and common issues encountered during deployment.
+These steps are environment-specific and must be updated to match your own setup.
+
+---
+
+## 1. Database Migration Script – Required Changes
+
+Before running the database migration script, the following values **must** be updated:
+
+- S3 bucket name containing the SQL migration file
+- RDS database endpoint (hostname)
+- Database name
+- Database username
+- Database password
+
+These values are unique per environment and must be replaced with your own.
+Using incorrect values will result in failed migrations or database connection errors.
+
+---
+
+## 2. Editing the `.env` File Safely
+
+When editing the `.env` file using `vi`:
+
+- Press **`i`** to enter insert mode
+- Make your changes
+- Press **`ESC`**
+- Type **`:wq!`** and press **Enter** to save and exit
+
+This process applies to all `.env` edits throughout the deployment.
+
+---
+
+## 3. Installing and Verifying the Website on the EC2 Instance
+
+# ================================
+# Application Post-Deployment Configuration
+# ================================
+
+# 1. Copy application files after extraction
+sudo cp -R shopwise/. /var/www/html/
+sudo rm -rf shopwise shopwise.zip
+
+# Verify files were copied correctly
+cd /var/www/html
+ls
+
+# ================================
+# 2. Edit Environment Configuration (.env)
+# ================================
+
+# Open the environment file
+sudo vi .env
+
+# IMPORTANT (vi editor usage):
+# Press i            -> enter insert mode
+# Make changes
+# Press ESC          -> exit insert mode
+# Type :wq! + Enter  -> save and exit
+
+# Required .env values to update:
+
+# Application URL (initially use ALB DNS)
+APP_URL=<ALB_DNS_NAME>
+
+# Database configuration (must match RDS)
+DB_HOST=<RDS_ENDPOINT>
+DB_DATABASE=<DATABASE_NAME>
+DB_USERNAME=<DATABASE_USERNAME>
+DB_PASSWORD=<DATABASE_PASSWORD>
+
+# ================================
+# 3. Domain Registration Outside AWS
+# ================================
+
+# Use this approach if AWS domain registration is unavailable
+# (e.g., new account or billing restriction)
+
+# - Register domain with external registrar (e.g., Namecheap)
+# - Use Route 53 ONLY as DNS hosting provider
+# - Update registrar name servers to Route 53 name servers
+# - Create DNS records in Route 53 after delegation completes
+
+# Do NOT modify application configuration until DNS resolves correctly
+
+# ================================
+# 4. Update Application After DNS Records Are Created
+# ================================
+
+cd /var/www/html
+sudo vi .env
+
+# Update application URL to registered domain
+APP_URL=http://www.yourdomain.com
+
+# Save and exit (:wq!)
+
+# ================================
+# 5. Enforce HTTPS After ALB HTTPS Listener Is Configured
+# ================================
+
+cd /var/www/html
+sudo vi .env
+
+# Ensure environment is set correctly
+APP_ENV=production
+
+# Save and exit (:wq!)
+
+# Navigate to application service provider
+cd app
+cd Providers
+sudo vi AppServiceProvider.php
+
+# Add the following logic to force HTTPS in production
+
+if (env('APP_ENV') === 'production') {
+    \Illuminate\Support\Facades\URL::forceScheme('https');
+}
+
+# Save and exit
+# Press ESC
+# Type :wq!
+# Press Enter
+
+# Restart Apache to apply changes
+sudo service httpd restart
+
+# ================================
+# WHY THIS MATTERS
+# ================================
+
+# - Auto Scaling instances are immutable and disposable
+# - Changes must be baked into AMIs, not applied live
+# - Domain and HTTPS changes often occur after deployment
+# - Incorrect ordering can cause downtime or redirect issues
+# - These steps reflect real operational lessons learned
+
+
 
 ## Key Skills and Tools Demonstrated
 
